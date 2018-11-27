@@ -2,3 +2,5 @@ data/
 outputs/
 logs/
 __pycache__/
+.idea/
+venv/

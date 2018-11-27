@@ -1,3 +1,6 @@
+# Note
+This repository is taken from: https://github.com/wouterkool/attention-tsp
+
 # Attention Solves Your TSP, Approximately
 
 Attention based model for learning to solve the Travelling Salesman Problem (TSP) and the Vehicle Routing Problem (VRP). Training with REINFORCE with greedy rollout baseline.
