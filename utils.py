@@ -79,23 +79,18 @@ def load_model(path, epoch=None):
 
     problem = load_problem(args['problem'])
 
-    model_class = {
-        'attention': AttentionModel,
-        'pointer': PointerNetwork
-    }.get(args.get('model', 'attention'), None)
+    model_class = {'attention': AttentionModel,
+                   'pointer': PointerNetwork}.get(args.get('model', 'attention'), None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
 
-    #assert args['model'] == "attention"
-    model = model_class(
-        args['embedding_dim'],
-        args['hidden_dim'],
-        problem,
-        n_encode_layers=args['n_encode_layers'],
-        mask_inner=True,
-        mask_logits=True,
-        normalization=args['normalization'],
-        tanh_clipping=args['tanh_clipping']
-    )
+    model = model_class(args['embedding_dim'],
+                        args['hidden_dim'],
+                        problem,
+                        n_encode_layers=args['n_encode_layers'],
+                        mask_inner=True,
+                        mask_logits=True,
+                        normalization=args['normalization'],
+                        tanh_clipping=args['tanh_clipping'])
 
     # Overwrite model parameters by parameters to load
     load_data = torch_load_cpu(model_filename)
