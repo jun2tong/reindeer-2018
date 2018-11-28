@@ -17,17 +17,8 @@ class AttentionModel(nn.Module):
 
     VEHICLE_CAPACITY = 1.  # (w.l.o.g. vehicle capacity is 1, demands should be scaled)
 
-    def __init__(self,
-                 embedding_dim,
-                 hidden_dim,
-                 problem,
-                 n_encode_layers=2,
-                 tanh_clipping=10.,
-                 mask_inner=True,
-                 mask_logits=True,
-                 normalization='batch',
-                 n_heads=8,
-                 fix_norm_factor=False):
+    def __init__(self, embedding_dim, hidden_dim, problem, n_encode_layers=2, tanh_clipping=10., mask_inner=True,
+                 mask_logits=True, normalization='batch', n_heads=8, fix_norm_factor=False):
         super(AttentionModel, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -68,12 +59,8 @@ class AttentionModel(nn.Module):
 
         self.init_embed = nn.Linear(node_dim, embedding_dim)
 
-        self.embedder = GraphAttentionEncoder(
-            n_heads=n_heads,
-            embed_dim=embedding_dim,
-            n_layers=self.n_encode_layers,
-            normalization=normalization
-        )
+        self.embedder = GraphAttentionEncoder(n_heads=n_heads, embed_dim=embedding_dim, n_layers=self.n_encode_layers,
+                                              normalization=normalization)
 
         # For each node we compute (glimpse key, glimpse value, logit key) so 3 * embedding_dim
         self.project_node_embeddings = nn.Linear(embedding_dim, 3 * embedding_dim, bias=False)

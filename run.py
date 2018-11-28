@@ -6,7 +6,6 @@ import pprint as pp
 
 import torch
 import torch.optim as optim
-from tensorboard_logger import Logger as TbLogger
 
 from critic_network import CriticNetwork
 from options import get_options
@@ -14,7 +13,7 @@ from train import train_epoch, validate, get_inner_model
 from baselines import NoBaseline, ExponentialBaseline, CriticBaseline, RolloutBaseline, WarmupBaseline
 from attention_model import AttentionModel
 from pointer_network import PointerNetwork, CriticNetworkLSTM
-from utils import torch_load_cpu, load_model, maybe_cuda_model, load_problem
+from utils import torch_load_cpu, maybe_cuda_model, load_problem
 
 
 def run(opts):
@@ -24,12 +23,6 @@ def run(opts):
 
     # Set the random seed
     torch.manual_seed(opts.seed)
-
-    # Optionally configure tensorboard
-    tb_logger = None
-    if not opts.no_tensorboard:
-        tb_logger = TbLogger(os.path.join(opts.log_dir, "{}_{}".format(opts.problem, opts.graph_size), opts.run_name))
-
 
     os.makedirs(opts.save_dir)
     # Save arguments so exact configuration can always be found
@@ -151,17 +144,7 @@ def run(opts):
         validate(model, val_dataset, opts)
     else:
         for epoch in range(opts.epoch_start, opts.epoch_start + opts.n_epochs):
-            train_epoch(
-                model,
-                optimizer,
-                baseline,
-                lr_scheduler,
-                epoch,
-                val_dataset,
-                problem,
-                tb_logger,
-                opts
-            )
+            train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, problem, None, opts)
 
 
 if __name__ == "__main__":

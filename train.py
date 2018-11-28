@@ -90,19 +90,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     set_decode_type(model, "sampling")
 
     for batch_id, batch in enumerate(training_dataloader):
-
-        train_batch(
-            model,
-            optimizer,
-            baseline,
-            epoch,
-            batch_id,
-            step,
-            batch,
-            tb_logger,
-            opts
-        )
-
+        train_batch(model, optimizer, baseline, epoch, batch_id, step, batch, tb_logger, opts)
         step += 1
 
     epoch_duration = time.time() - start_time
@@ -129,17 +117,7 @@ def train_epoch(model, optimizer, baseline, lr_scheduler, epoch, val_dataset, pr
     baseline.epoch_callback(model, epoch)
 
 
-def train_batch(
-        model,
-        optimizer,
-        baseline,
-        epoch,
-        batch_id,
-        step,
-        batch,
-        tb_logger,
-        opts
-):
+def train_batch(model, optimizer, baseline, epoch, batch_id, step, batch, tb_logger, opts):
 
     x, bl_val = baseline.unwrap_batch(batch)
     x = make_var(x, opts.use_cuda)

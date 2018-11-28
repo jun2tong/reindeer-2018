@@ -106,8 +106,8 @@ class MultiHeadAttention(nn.Module):
         heads = torch.matmul(attn, V)
 
         out = torch.mm(
-            heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim),
-            self.W_out.view(-1, self.embed_dim)
+                heads.permute(1, 2, 0, 3).contiguous().view(-1, self.n_heads * self.val_dim),
+                self.W_out.view(-1, self.embed_dim)
         ).view(batch_size, n_query, self.embed_dim)
 
         return out
@@ -155,35 +155,27 @@ class MultiHeadAttentionLayer(nn.Sequential):
             normalization='batch',
     ):
         super(MultiHeadAttentionLayer, self).__init__(
-            SkipConnection(
-                MultiHeadAttention(
-                    n_heads,
-                    input_dim=embed_dim,
-                    embed_dim=embed_dim
-                )
-            ),
-            Normalization(embed_dim, normalization),
-            SkipConnection(
-                nn.Sequential(
-                    nn.Linear(embed_dim, feed_forward_hidden),
-                    nn.ReLU(),
-                    nn.Linear(feed_forward_hidden, embed_dim)
-                ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
-            ),
-            Normalization(embed_dim, normalization)
+                SkipConnection(
+                        MultiHeadAttention(
+                                n_heads,
+                                input_dim=embed_dim,
+                                embed_dim=embed_dim
+                        )
+                ),
+                Normalization(embed_dim, normalization),
+                SkipConnection(
+                        nn.Sequential(
+                                nn.Linear(embed_dim, feed_forward_hidden),
+                                nn.ReLU(),
+                                nn.Linear(feed_forward_hidden, embed_dim)
+                        ) if feed_forward_hidden > 0 else nn.Linear(embed_dim, embed_dim)
+                ),
+                Normalization(embed_dim, normalization)
         )
 
 
 class GraphAttentionEncoder(nn.Module):
-    def __init__(
-            self,
-            n_heads,
-            embed_dim,
-            n_layers,
-            node_dim=None,
-            normalization='batch',
-            feed_forward_hidden=512
-    ):
+    def __init__(self, n_heads, embed_dim, n_layers, node_dim=None, normalization='batch', feed_forward_hidden=512):
         super(GraphAttentionEncoder, self).__init__()
 
         # To map input to embedding space
@@ -195,7 +187,6 @@ class GraphAttentionEncoder(nn.Module):
         ))
 
     def forward(self, x, mask=None):
-
         assert mask is None, "TODO mask not yet supported!"
 
         # Batch multiply to get initial embeddings of nodes
