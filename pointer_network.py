@@ -59,8 +59,7 @@ class Attention(nn.Module):
         # batch x dim x sourceL
         expanded_q = q.repeat(1, 1, e.size(2)) 
         # batch x 1 x hidden_dim
-        v_view = self.v.unsqueeze(0).expand(
-                expanded_q.size(0), len(self.v)).unsqueeze(1)
+        v_view = self.v.unsqueeze(0).expand(expanded_q.size(0), len(self.v)).unsqueeze(1)
         # [batch_size x 1 x hidden_dim] * [batch_size x hidden_dim x sourceL]
         u = torch.bmm(v_view, self.tanh(expanded_q + e)).squeeze(1)
         if self.use_tanh:
@@ -71,14 +70,8 @@ class Attention(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, 
-            embedding_dim,
-            hidden_dim,
-            tanh_exploration,
-            use_tanh,
-            n_glimpses=1,
-            mask_glimpses=True,
-            mask_logits=True):
+    def __init__(self, embedding_dim, hidden_dim, tanh_exploration, use_tanh, n_glimpses=1, mask_glimpses=True,
+                 mask_logits=True):
         super(Decoder, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -164,25 +157,21 @@ class Decoder(nn.Module):
         idxs = None
         mask = Variable(
             embedded_inputs.data.new().byte().new(embedded_inputs.size(1), embedded_inputs.size(0)).zero_(),
-            requires_grad=False
-        )
+            requires_grad=False)
 
         for i in steps:
             hidden, log_p, probs, mask = self.recurrence(decoder_input, hidden, mask, idxs, i, context)
             # select the next inputs for the decoder [batch_size x hidden_dim]
-            idxs = self.decode(
-                probs,
-                mask
-            ) if eval_tours is None else eval_tours[:, i]
+            idxs = self.decode(probs, mask) if eval_tours is None else eval_tours[:, i]
 
             idxs = idxs.detach()  # Otherwise pytorch complains it want's a reward, todo implement this more properly?
 
             # Gather input embedding of selected
-            decoder_input = torch.gather(
-                embedded_inputs,
-                0,
-                idxs.contiguous().view(1, batch_size, 1).expand(1, batch_size, *embedded_inputs.size()[2:])
-            ).squeeze(0)
+            decoder_input = torch.gather(embedded_inputs, 0,
+                                         idxs.contiguous().view(1, batch_size, 1).expand(1,
+                                                                                         batch_size,
+                                                                                         *embedded_inputs.size()[2:])
+                                         ).squeeze(0)
 
             # use outs to point to next object
             outputs.append(log_p)
@@ -208,12 +197,7 @@ class Decoder(nn.Module):
 
 class CriticNetworkLSTM(nn.Module):
     """Useful as a baseline in REINFORCE updates"""
-    def __init__(self,
-            embedding_dim,
-            hidden_dim,
-            n_process_block_iters,
-            tanh_exploration,
-            use_tanh):
+    def __init__(self, embedding_dim, hidden_dim, n_process_block_iters, tanh_exploration, use_tanh):
         super(CriticNetworkLSTM, self).__init__()
         
         self.hidden_dim = hidden_dim
@@ -223,11 +207,9 @@ class CriticNetworkLSTM(nn.Module):
         
         self.process_block = Attention(hidden_dim, use_tanh=use_tanh, C=tanh_exploration)
         self.sm = nn.Softmax(dim=1)
-        self.decoder = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
-        )
+        self.decoder = nn.Sequential(nn.Linear(hidden_dim, hidden_dim),
+                                     nn.ReLU(),
+                                     nn.Linear(hidden_dim, 1))
 
     def forward(self, inputs):
         """
@@ -269,19 +251,14 @@ class PointerNetwork(nn.Module):
         assert problem.NAME == "tsp", "Pointer Network only supported for TSP"
         self.input_dim = 2
 
-        self.encoder = Encoder(
-            embedding_dim,
-            hidden_dim)
+        self.encoder = Encoder(embedding_dim, hidden_dim)
 
-        self.decoder = Decoder(
-            embedding_dim,
-            hidden_dim,
-            tanh_exploration=tanh_clipping,
-            use_tanh=tanh_clipping > 0,
-            n_glimpses=1,
-            mask_glimpses=mask_inner,
-            mask_logits=mask_logits
-        )
+        self.decoder = Decoder(embedding_dim, hidden_dim,
+                               tanh_exploration=tanh_clipping,
+                               use_tanh=tanh_clipping > 0,
+                               n_glimpses=1,
+                               mask_glimpses=mask_inner,
+                               mask_logits=mask_logits)
 
         # Trainable initial hidden states
         std = 1. / math.sqrt(embedding_dim)
@@ -333,8 +310,7 @@ class PointerNetwork(nn.Module):
 
         encoder_hx = encoder_cx = Variable(
             torch.zeros(1, inputs.size(1), self.encoder.hidden_dim, out=inputs.data.new()),
-            requires_grad=False
-        )
+            requires_grad=False)
 
         # encoder forward pass
         enc_h, (enc_h_t, enc_c_t) = self.encoder(inputs, (encoder_hx, encoder_cx))

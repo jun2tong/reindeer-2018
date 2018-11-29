@@ -17,7 +17,6 @@ from utils import torch_load_cpu, maybe_cuda_model, load_problem
 
 
 def run(opts):
-
     # Pretty print the run args
     pp.pprint(vars(opts))
 
@@ -46,19 +45,15 @@ def run(opts):
         'pointer': PointerNetwork
     }.get(opts.model, None)
     assert model_class is not None, "Unknown model: {}".format(model_class)
-    model = maybe_cuda_model(
-        model_class(
-            opts.embedding_dim,
-            opts.hidden_dim,
-            problem,
-            n_encode_layers=opts.n_encode_layers,
-            mask_inner=True,
-            mask_logits=True,
-            normalization=opts.normalization,
-            tanh_clipping=opts.tanh_clipping
-        ),
-        opts.use_cuda
-    )
+    model = maybe_cuda_model(model_class(opts.embedding_dim,
+                                         opts.hidden_dim,
+                                         problem,
+                                         n_encode_layers=opts.n_encode_layers,
+                                         mask_inner=True,
+                                         mask_logits=True,
+                                         normalization=opts.normalization,
+                                         tanh_clipping=opts.tanh_clipping),
+                             opts.use_cuda)
 
     # Overwrite model parameters by parameters to load
     model_ = get_inner_model(model)
@@ -69,27 +64,16 @@ def run(opts):
         baseline = ExponentialBaseline(opts.exp_beta)
     elif opts.baseline == 'critic' or opts.baseline == 'critic_lstm':
         assert problem.NAME == 'tsp', "Critic only supported for TSP"
-        baseline = CriticBaseline(
-            maybe_cuda_model(
-                CriticNetworkLSTM(
-                    2,
-                    opts.embedding_dim,
-                    opts.hidden_dim,
-                    opts.n_encode_layers,
-                    opts.tanh_clipping
-                )
-                if opts.baseline == 'critic_lstm'
-                else
-                CriticNetwork(
-                    2,
-                    opts.embedding_dim,
-                    opts.hidden_dim,
-                    opts.n_encode_layers,
-                    opts.normalization
-                ),
-                opts.use_cuda
-            )
-        )
+        baseline = CriticBaseline(maybe_cuda_model(
+                CriticNetworkLSTM(2, opts.embedding_dim,
+                                  opts.hidden_dim,
+                                  opts.n_encode_layers,
+                                  opts.tanh_clipping)
+                if opts.baseline == 'critic_lstm' else CriticNetwork(2, opts.embedding_dim,
+                                                                     opts.hidden_dim,
+                                                                     opts.n_encode_layers,
+                                                                     opts.normalization),
+                opts.use_cuda))
     elif opts.baseline == 'rollout':
         baseline = RolloutBaseline(model, problem, opts)
     else:
@@ -104,14 +88,9 @@ def run(opts):
         baseline.load_state_dict(load_data['baseline'])
 
     # Initialize optimizer
-    optimizer = optim.Adam(
-        [{'params': model.parameters(), 'lr': opts.lr_model}]
-        + (
-            [{'params': baseline.get_learnable_parameters(), 'lr': opts.lr_critic}]
-            if len(baseline.get_learnable_parameters()) > 0
-            else []
-        )
-    )
+    optimizer = optim.Adam([{'params': model.parameters(), 'lr': opts.lr_model}]
+                           + ([{'params': baseline.get_learnable_parameters(), 'lr': opts.lr_critic}]
+                              if len(baseline.get_learnable_parameters()) > 0 else []))
 
     # Load optimizer state
     if 'optimizer' in load_data:

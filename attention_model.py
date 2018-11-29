@@ -28,7 +28,6 @@ class AttentionModel(nn.Module):
         self.decode_type = None
         self.temp = 1.0
         self.allow_partial = problem.NAME == 'sdvrp'
-        self.is_vrp = problem.NAME == 'cvrp' or problem.NAME == 'sdvrp'
 
         self.tanh_clipping = tanh_clipping
 
@@ -38,24 +37,14 @@ class AttentionModel(nn.Module):
         self.problem = problem
         self.n_heads = n_heads
 
-        # Problem specific context parameters (placeholder and step context dimension)
-        if self.is_vrp:
-            step_context_dim = embedding_dim + 1  # Embedding of last node + remaining_capacity
-            node_dim = 3  # x, y, demand
+        # TSP
+        assert problem.NAME == 'tsp', "Unsupported problem: {}".format(problem.NAME)
+        step_context_dim = 2 * embedding_dim  # Embedding of first and last node
+        node_dim = 2  # x, y
 
-            # Special embedding projection for depot node
-            self.init_embed_depot = nn.Linear(2, embedding_dim)
-            
-            if self.allow_partial:  # Need to include the demand if split delivery allowed
-                self.project_node_step = nn.Linear(1, 3 * embedding_dim, bias=False)
-        else:  # TSP
-            assert problem.NAME == 'tsp', "Unsupported problem: {}".format(problem.NAME)
-            step_context_dim = 2 * embedding_dim  # Embedding of first and last node
-            node_dim = 2  # x, y
-            
-            # Learned input symbols for first action
-            self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
-            self.W_placeholder.data.uniform_(-1, 1)  # Placeholder should be in range of activations
+        # Learned input symbols for first action
+        self.W_placeholder = nn.Parameter(torch.Tensor(2 * embedding_dim))
+        self.W_placeholder.data.uniform_(-1, 1)  # Placeholder should be in range of activations
 
         self.init_embed = nn.Linear(node_dim, embedding_dim)
 
@@ -110,15 +99,6 @@ class AttentionModel(nn.Module):
 
     def _init_embed(self, input):
 
-        if self.is_vrp:
-            return torch.cat(
-                (
-                    self.init_embed_depot(input['depot'])[:, None, :],
-                    self.init_embed(torch.cat((input['loc'], input['demand'][:, :, None]), -1))
-                ),
-                1
-            )
-
         return self.init_embed(input)
 
     def _inner(self, input, embeddings):
@@ -154,10 +134,6 @@ class AttentionModel(nn.Module):
     def _is_finished(self, i, state):
         prev_a, demands_with_depot, used_capacity, first_a, mask = state
 
-        if self.is_vrp:
-            # For VRP, i >= graph_size is a quick necessary condition
-            return i >= demands_with_depot.size(-1) and not (demands_with_depot > 0).any()
-
         # TSP
         return i >= mask.size(-1)
 
@@ -168,20 +144,10 @@ class AttentionModel(nn.Module):
         prev_a = Variable(torch.zeros(batch_size, 1, out=loc.data.new().long().new()))
         first_a = None
 
-        if self.is_vrp:
-
-            demands_with_depot = torch.cat((
-                Variable(torch.zeros(batch_size, 1, out=input['demand'].data.new())),
-                input['demand'][:, :]
-            ), 1)[:, None, :]  # Add steps dimension
-            assert (demands_with_depot <= self.VEHICLE_CAPACITY).all(), "Demands must be < vehicle capacity"
-            used_capacity = Variable(loc.data.new(batch_size, 1).fill_(0))
-            mask = None  # For VRP, mask is implicit via (remaining) demands
-
-        else:  # TSP
-            demands_with_depot = used_capacity = None
-            # For TSP keep explicit mask
-            mask = Variable(loc.data.new().byte().new(loc.size(0), 1, loc.size(1)).zero_())
+        # TSP
+        demands_with_depot = used_capacity = None
+        # For TSP keep explicit mask
+        mask = Variable(loc.data.new().byte().new(loc.size(0), 1, loc.size(1)).zero_())
 
         # Second dimension is the step which is always a singleton for now
         return prev_a, demands_with_depot, used_capacity, first_a, mask
@@ -193,39 +159,11 @@ class AttentionModel(nn.Module):
         # Update the state
         prev_a = selected[:, None]  # Add dimension for step
 
-        if self.is_vrp:
-            # We don't want to modify in place, prevent trouble
-            demands_with_depot = demands_with_depot.clone()[:, 0, :]
-            used_capacity = used_capacity.clone()[:, 0]
-
-            # Since most nodes won't visit depot,
-            # maybe it is more efficient to do demands.gather(1, torch.max(selected - 1, 0)]
-            # as afterwards if selected == 0 (depot) it will be reset anyway
-            not_to_depot = torch.nonzero(selected != 0)
-
-            if len(not_to_depot) > 0:
-                # Not sure if boolean indexing or numeric is faster
-                # If we do not visit the depot, we visit one additional node
-                d = demands_with_depot[not_to_depot[:, 0], selected[selected != 0]]
-                if self.allow_partial:
-                    d = torch.min(d, self.VEHICLE_CAPACITY - used_capacity[selected != 0])
-                used_capacity[selected == 0] = 0
-                used_capacity[selected != 0] += d
-                demands_with_depot[not_to_depot[:, 0], selected[selected != 0]] -= d
-
-            else:
-                # All routes visit depot, set all capacities to 0
-                used_capacity[:] = 0
-
-            demands_with_depot = demands_with_depot[:, None, :]
-            used_capacity = used_capacity[:, None]
-
-        else:  # TSP
-
-            if first_a is None:
-                first_a = prev_a
-            # Update mask (temporarily squeeze steps dimension)
-            mask = mask[:, 0, :].clone().scatter_(1, prev_a, True)[:, None, :]
+        # TSP
+        if first_a is None:
+            first_a = prev_a
+        # Update mask (temporarily squeeze steps dimension)
+        mask = mask[:, 0, :].clone().scatter_(1, prev_a, True)[:, None, :]
 
         return prev_a, demands_with_depot, used_capacity, first_a, mask
 
@@ -284,18 +222,18 @@ class AttentionModel(nn.Module):
 
         # Compute query = context node embedding
         query = fixed_context + self.project_step_context(
-            self._get_parallel_step_context(embeddings, prev_a, first_a=first_a, used_capacity=used_capacity)
-        )
+            self._get_parallel_step_context(embeddings, prev_a, first_a=first_a))
+
         # Compute keys and values for the nodes
-        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(attention_node_data_fixed, demands_with_depot)
+        glimpse_K, glimpse_V, logit_K = self._get_attention_node_data(attention_node_data_fixed)
         # Compute the mask
-        mask = self._get_mask(demands_with_depot, used_capacity, prev_a, mask)
+        mask = self._get_mask(mask)
         # Compute logits
         logits, glimpse = self._one_to_many_logits(query, glimpse_K, glimpse_V, logit_K, mask)
         log_p = F.log_softmax(logits / self.temp, dim=-1)
         return log_p, mask
 
-    def _get_parallel_step_context(self, embeddings, prev_a, first_a=None, used_capacity=None):
+    def _get_parallel_step_context(self, embeddings, prev_a, first_a=None):
         """
         Returns the context per step, optionally for multiple steps at once (for efficient evaluation of the model)
         
@@ -307,43 +245,27 @@ class AttentionModel(nn.Module):
 
         batch_size, num_steps = prev_a.size()
 
-        if self.is_vrp:
-            # Embedding of previous node + remaining capacity
-            return torch.cat((
-                torch.gather(
-                    embeddings,
-                    1,
-                    prev_a.contiguous()
-                        .view(batch_size, num_steps, 1)
-                        .expand(batch_size, num_steps, embeddings.size(-1))
-                ).view(batch_size, num_steps, embeddings.size(-1)),  # View to have (batch_size, num_steps, embed_dim)
-                self.VEHICLE_CAPACITY - used_capacity[:, :, None]
-            ), -1)
-        else:  # TSP
-        
-            if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not
-                if first_a is None:
-                    # First and only step, ignore prev_a (this is a placeholder)
-                    return self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1))
-                else:
-                    return embeddings.gather(
-                        1,
-                        torch.cat((first_a, prev_a), 1)[:, :, None].expand(batch_size, 2, embeddings.size(-1))
-                    ).view(batch_size, 1, -1)
-            # More than one step, assume always starting with first
-            embeddings_per_step = embeddings.gather(
-                1,
-                prev_a[:, 1:, None].expand(batch_size, num_steps - 1, embeddings.size(-1))
-            )
-            return torch.cat((
-                # First step placeholder, cat in dim 1 (time steps)
-                self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1)),
-                # Second step, concatenate embedding of first with embedding of current/previous (in dim 2, context dim)
-                torch.cat((
-                    embeddings_per_step[:, 0:1, :].expand(batch_size, num_steps - 1, embeddings.size(-1)),
-                    embeddings_per_step
-                ), 2)
-            ), 1)
+        # TSP
+
+        if num_steps == 1:  # We need to special case if we have only 1 step, may be the first or not
+            if first_a is None:
+                # First and only step, ignore prev_a (this is a placeholder)
+                return self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1))
+            else:
+                return embeddings.gather(1,
+                                         torch.cat((first_a, prev_a), 1)[:, :, None].expand(batch_size, 2,
+                                                                                            embeddings.size(-1))
+                                         ).view(batch_size, 1, -1)
+        # More than one step, assume always starting with first
+        embeddings_per_step = embeddings.gather(1,
+                                                prev_a[:, 1:, None].expand(batch_size, num_steps - 1,
+                                                                           embeddings.size(-1)))
+        return torch.cat((
+            # First step placeholder, cat in dim 1 (time steps)
+            self.W_placeholder[None, None, :].expand(batch_size, 1, self.W_placeholder.size(-1)),
+            # Second step, concatenate embedding of first with embedding of current/previous (in dim 2, context dim)
+            torch.cat((embeddings_per_step[:, 0:1, :].expand(batch_size, num_steps - 1, embeddings.size(-1)),
+                       embeddings_per_step), 2)), 1)
 
     def _one_to_many_logits(self, query, glimpse_K, glimpse_V, logit_K, mask):
 
@@ -381,45 +303,12 @@ class AttentionModel(nn.Module):
 
         return logits, glimpse.squeeze(-2)
 
-    def _get_mask(self, demands_with_depot, used_capacity, prev_a, mask):
-        
-        if self.is_vrp:
-            
-            if self.allow_partial:
-                # Nodes that cannot be visited are already visited or the vehicle is full
-                mask_loc = (demands_with_depot[:, :, 1:] == 0) | (used_capacity[:, :, None] >= self.VEHICLE_CAPACITY)
-            else:
-                # Nodes that cannot be visited are already visited or too much demand to be served now
-                demands_loc = demands_with_depot[:, :, 1:]
-                mask_loc = (
-                        (demands_loc == 0) |
-                        (demands_loc + used_capacity[:, :, None] > self.VEHICLE_CAPACITY)
-                )
-                
-            # Cannot visit the depot if just visited and still unserved nodes
-            mask_depot = (prev_a == 0) & ((mask_loc == 0).int().sum(-1) > 0)
-            return torch.cat((mask_depot[:, :, None], mask_loc), -1)
+    def _get_mask(self, mask):
         
         # TSP
         return mask
 
-    def _get_attention_node_data(self, attention_node_data_fixed, demands_with_depot):
-
-        if self.is_vrp and self.allow_partial:
-
-            glimpse_key_fixed, glimpse_val_fixed, logit_key_fixed = attention_node_data_fixed
-            # Need to provide information of how much each node has already been served
-            # Clone demands as they are needed by the backprop whereas they are updated later
-            glimpse_key_step, glimpse_val_step, logit_key_step = \
-                self.project_node_step(demands_with_depot[:, :, :, None].clone()).chunk(3, dim=-1)
-
-            # Projection of concatenation is equivalent to addition of projections but this is more efficient
-            return (
-                self._make_heads(glimpse_key_fixed + glimpse_key_step),
-                self._make_heads(glimpse_val_fixed + glimpse_val_step),
-                logit_key_fixed + logit_key_step,
-            )
-
+    def _get_attention_node_data(self, attention_node_data_fixed):
         # TSP or VRP without split delivery
         return attention_node_data_fixed
 

@@ -45,11 +45,8 @@ def rollout(model, dataset, opts):
         cost, _ = model(make_var(bat, opts.use_cuda, volatile=True))
         return cost.data.cpu()
 
-    return torch.cat([
-        eval_model_bat(bat)
-        for bat
-        in DataLoader(dataset, batch_size=opts.eval_batch_size)
-    ], 0)
+    return torch.cat([eval_model_bat(bat)
+                      for bat in DataLoader(dataset, batch_size=opts.eval_batch_size)], 0)
 
 
 def clip_grad_norms(param_groups, max_norm=math.inf):
